@@ -1,0 +1,74 @@
+# canslim.yaml — copy to canslim.yaml and edit. Secrets can alternatively be set via env vars.
+
+providers:
+  yfinance:
+    enabled: true
+    concurrency: 8
+    request_timeout_s: 20
+    max_retries: 4
+  sec:
+    enabled: true
+    api_key: "canslim-user you@example.com"
+    concurrency: 5
+    request_timeout_s: 20
+    max_retries: 4
+  fmp:
+    enabled: false
+    api_key_env: FMP_API_KEY
+    daily_budget: 250
+    concurrency: 2
+    request_timeout_s: 20
+    max_retries: 4
+
+cache:
+  root: cache
+  price_ttl_hours: 20                  # ~daily
+  fundamentals_ttl_hours: 168          # weekly
+  institutional_ttl_hours: 168
+
+criteria:
+  # C — current quarterly EPS
+  c_min_yoy: 0.25
+  c_require_accelerating: true
+
+  # A — annual EPS
+  a_min_annual_yoy: 0.25
+  a_required_years: 3
+  a_min_roe_pct: 0.17
+  a_allow_cagr_fallback: true
+
+  # N — 52-week-high proximity (info only)
+  n_max_dist_to_high_pct: 0.15
+  n_breakout_pivot_pct: 0.05
+  n_breakout_volume_multiple: 1.4
+
+  # S — supply/demand
+  s_min_adv10_over_adv50: 1.2
+  s_max_float_shares: 1000000000
+
+  # L — leader
+  l_min_rs_percentile: 0.70
+
+  # I — institutional
+  i_require_qoq_nondecrease: true
+  i_min_new_positions: 1
+
+  # Pre-filter
+  prefilter_min_price: 5.0
+  prefilter_min_adv50_usd: 1000000
+  prefilter_max_dist_to_52w_high: 0.25
+
+weights:
+  c: 1.0
+  a: 1.0
+  n: 0.5
+  s: 1.0
+  l: 1.0
+  i: 1.0
+  m: 0.5
+
+scanner:
+  default_universe: custom             # sp500 | us_all | custom
+  universe_file: tickers.txt           # required when default_universe=custom
+  out_dir: out
+  max_workers: 16

@@ -1,0 +1,104 @@
+# canslim.yaml — copy to canslim.yaml and edit. Secrets can alternatively be set via env vars.
+
+providers:
+  yfinance:
+    enabled: true
+    concurrency: 8
+    request_timeout_s: 20
+    max_retries: 4
+  sec:
+    # SEC EDGAR — free, unlimited, authoritative US fundamentals.
+    # Put your name + email in `api_key` (reused as User-Agent) — SEC fair-use policy requires it.
+    enabled: true
+    api_key: "canslim-user you@example.com"
+    concurrency: 5                     # SEC rate limit is ~10 req/sec; we stay under
+    request_timeout_s: 20
+    max_retries: 4
+  fmp:
+    enabled: false                     # optional; paid tiers give clean fundamentals + institutional
+    api_key_env: FMP_API_KEY
+    # api_key: "paste-key-here"
+    daily_budget: 250
+    concurrency: 2
+    request_timeout_s: 20
+    max_retries: 4
+
+cache:
+  root: cache
+  price_ttl_hours: 20                  # ~daily
+  fundamentals_ttl_hours: 168          # weekly
+  institutional_ttl_hours: 168
+
+criteria:
+  # C — current quarterly EPS
+  c_min_yoy: 0.25
+  c_require_accelerating: true
+
+  # cup-with-handle pattern: how far the right side may exceed the left peak.
+  # Captures "earnings gap" variants where the stock gapped past the prior peak
+  # before forming a tight handle. 0.40 = right peak up to 40% above left peak.
+  # Set to 0.05 for strict O'Neil rule (right peak must be near left peak only).
+  # NOTE: this lives on the pattern detector, not the criteria thresholds — see
+  # canslim/patterns/cup_handle.py if you need to override programmatically.
+
+  # A — annual EPS
+  a_min_annual_yoy: 0.25
+  a_required_years: 3
+  a_min_roe_pct: 0.17
+  a_allow_cagr_fallback: true
+  # Leadership-confirmed turnaround override (O'Neil "rally off a turning point"):
+  # when a turnaround stock has top-decile RS AND a high-confidence pattern,
+  # let it pass A even if ROE hasn't recovered. Disable for purist mode.
+  a_leadership_override_enabled: true
+  a_leadership_override_min_rs: 0.90
+  a_leadership_override_min_pattern_conf: 0.65
+
+  # N — 52-week-high proximity (info only)
+  n_max_dist_to_high_pct: 0.15
+  n_breakout_pivot_pct: 0.05
+  n_breakout_volume_multiple: 1.4
+
+  # S — supply/demand
+  s_min_adv10_over_adv50: 1.2
+  s_max_float_shares: 1000000000
+  # Pattern-aware S relaxation: drying-up volume is the signature of cup-with-handle,
+  # high-tight-flag, three-weeks-tight, and flat-base. When such a pattern is detected
+  # with high confidence, accept ADV10/ADV50 < threshold. Float check still applies.
+  s_pattern_override_enabled: true
+  s_pattern_override_min_conf: 0.65
+  s_pattern_override_patterns:
+    - cup_with_handle
+    - high_tight_flag
+    - three_weeks_tight
+    - flat_base
+
+  # L — leader
+  l_min_rs_percentile: 0.70
+
+  # I — institutional
+  i_require_qoq_nondecrease: true
+  i_min_new_positions: 1
+
+  # Pre-filter
+  prefilter_min_price: 5.0
+  prefilter_min_adv50_usd: 1000000
+  prefilter_max_dist_to_52w_high: 0.25
+
+weights:
+  c: 1.0
+  a: 1.0
+  n: 0.5
+  s: 1.0
+  l: 1.0
+  i: 1.0
+  m: 0.5
+
+scanner:
+  default_universe: sp500              # sp500 | us_all | custom
+  # universe_file: tickers.txt         # required when default_universe=custom
+  out_dir: out
+  max_workers: 16
+  # Auto-render the markdown report to PDF after each scan. Requires Chrome
+  # (or Chromium / Brave / Edge) installed. Falls back gracefully if missing.
+  # Override the binary location via CANSLIM_CHROME env var if needed.
+  generate_pdf: true

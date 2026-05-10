@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
+# Cache directory: per-ticker parquet files (multi-GB across the universe)
+cache/
+
+# Scan outputs: generated reports per run, large binary blobs (PNG/PDF)
+out/
+
+# Backup files (created when toggling tickers.txt for ad-hoc runs)
+*.bak
+
+# Local env files (in case user adds one with real API keys)
+.env
+.envrc

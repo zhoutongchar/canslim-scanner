@@ -1,0 +1,182 @@
+"""Cup-with-Handle detector (O'Neil's canonical base pattern).
+
+Rules encoded from *How to Make Money in Stocks*:
+
+  * Prior uptrend of ~30% before the cup forms (we relax to "price near 52w high").
+  * Cup depth 12-33% from the left peak; 15-20% is classic.
+  * Cup duration 7 weeks minimum (~35 sessions); rounded bottom, not V-shaped.
+  * Right side of cup recovers to within ~5% of the left peak.
+  * Handle: 1-2 week pullback of 5-15% on lighter volume, drifting downward.
+  * Handle must be in the upper half of the cup (bullish structure).
+  * Pivot = handle high + $0.10.
+
+All thresholds are configurable via the class constructor.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+
+from canslim.models import PatternMatch
+from canslim.patterns.base import ChartPattern
+
+
+@dataclass
+class CupHandleParams:
+    lookback_sessions: int = 150  # ~30 weeks
+    min_cup_sessions: int = 35  # 7 weeks
+    min_cup_depth: float = 0.12
+    max_cup_depth: float = 0.35
+    max_right_side_gap: float = 0.08  # right peak must be within 8% of left peak (lower bound)
+    # Upper bound: right peak can exceed left peak by up to this much. Larger values
+    # accept small earnings-gap variants but quickly degrade into "stock in sustained
+    # uptrend past its real base" (e.g., AMD 35% above left peak = NOT a cup).
+    # 0.10 keeps the pattern conservative; setups that gapped >10% past prior peak
+    # should be classified as post-earnings continuation, not cup-with-handle.
+    max_right_side_overshoot: float = 0.10
+    min_handle_sessions: int = 5  # 1 week
+    max_handle_sessions: int = 25  # 5 weeks
+    min_handle_depth: float = 0.03
+    max_handle_depth: float = 0.18
+    handle_upper_half_only: bool = True
+
+
+class CupWithHandle(ChartPattern):
+    name = "cup_with_handle"
+
+    def __init__(self, params: Optional[CupHandleParams] = None) -> None:
+        self.params = params or CupHandleParams()
+
+    def detect(self, df: pd.DataFrame) -> Optional[PatternMatch]:
+        p = self.params
+        if df is None or df.empty or len(df) < p.min_cup_sessions + p.max_handle_sessions:
+            return None
+
+        window = df.tail(p.lookback_sessions).copy()
+        if len(window) < p.min_cup_sessions + p.min_handle_sessions:
+            return None
+
+        close = window["close"].astype(float).values
+        high = window.get("high", window["close"]).astype(float).values
+        low = window.get("low", window["close"]).astype(float).values
+        volume = window["volume"].astype(float).values
+        index = window.index
+
+        # Find left peak in the first ~60% of the window
+        left_cutoff = int(len(window) * 0.4)
+        if left_cutoff < 5:
+            return None
+        left_idx = int(np.argmax(high[:left_cutoff]))
+        left_peak = float(high[left_idx])
+
+        # Cup bottom = min after left peak, excluding the trailing handle window
+        bottom_search_end = len(window) - p.min_handle_sessions
+        if bottom_search_end <= left_idx + p.min_cup_sessions // 2:
+            return None
+        bottom_region = low[left_idx:bottom_search_end]
+        if bottom_region.size == 0:
+            return None
+        bottom_rel = int(np.argmin(bottom_region))
+        bottom_idx = left_idx + bottom_rel
+        bottom = float(low[bottom_idx])
+
+        depth = (left_peak - bottom) / left_peak if left_peak > 0 else 0.0
+        if not (p.min_cup_depth <= depth <= p.max_cup_depth):
+            return None
+
+        # Cup must be rounded: reject V-shape by requiring at least N sessions in the trough
+        cup_duration = bottom_idx - left_idx
+        if cup_duration < p.min_cup_sessions // 2:
+            return None
+
+        # Right side: find the highest point between the bottom and the last `max_handle_sessions`
+        right_region_end = len(window) - p.min_handle_sessions
+        right_region = high[bottom_idx:right_region_end]
+        if right_region.size < 3:
+            return None
+        right_rel = int(np.argmax(right_region))
+        right_idx = bottom_idx + right_rel
+        right_peak = float(high[right_idx])
+
+        # Right side must recover close to the left peak (lower bound) but may exceed it
+        # by up to `max_right_side_overshoot` — captures "earnings gap" pattern variants
+        # where the stock gapped past the prior peak before forming a tight handle.
+        # Beyond this overshoot the cup is too "extended" to qualify; skip and let the
+        # post-breakout detectors handle it.
+        recovery_gap = (left_peak - right_peak) / left_peak if left_peak > 0 else 1.0
+        if recovery_gap > p.max_right_side_gap or recovery_gap < -p.max_right_side_overshoot:
+            return None
+
+        # Total cup width must be sufficient
+        if (right_idx - left_idx) < p.min_cup_sessions:
+            return None
+
+        # Handle: from right_idx to the end
+        handle_region = window.iloc[right_idx : len(window)]
+        handle_duration = len(handle_region)
+        if not (p.min_handle_sessions <= handle_duration <= p.max_handle_sessions):
+            return None
+
+        handle_low = float(handle_region["low"].min() if "low" in handle_region else handle_region["close"].min())
+        handle_depth = (right_peak - handle_low) / right_peak if right_peak > 0 else 0.0
+        if not (p.min_handle_depth <= handle_depth <= p.max_handle_depth):
+            return None
+
+        # Handle should sit in the upper half of the cup (above the midpoint)
+        cup_mid = bottom + 0.5 * (left_peak - bottom)
+        if p.handle_upper_half_only and handle_low < cup_mid:
+            return None
+
+        # Volume check: handle volume should be lighter than cup-advance volume
+        cup_advance_vol = float(np.mean(volume[bottom_idx:right_idx]) or 0.0)
+        handle_vol = float(handle_region["volume"].mean() or 0.0)
+        light_handle_volume = handle_vol <= cup_advance_vol * 1.1
+
+        # Pivot = handle's highest close + small buffer
+        handle_high = float(handle_region["high"].max() if "high" in handle_region else handle_region["close"].max())
+        pivot = handle_high + 0.10
+
+        # Confidence blends: depth in classic range, handle depth, volume quality, right-side recovery
+        ideal_depth = 0.20
+        depth_score = 1.0 - min(1.0, abs(depth - ideal_depth) / 0.20)
+        handle_score = 1.0 - min(1.0, abs(handle_depth - 0.08) / 0.12)
+        vol_score = 1.0 if light_handle_volume else 0.5
+        recovery_score = 1.0 - min(1.0, max(0.0, recovery_gap) / p.max_right_side_gap)
+        confidence = float(max(0.0, min(1.0, 0.35 * depth_score + 0.25 * handle_score + 0.2 * vol_score + 0.2 * recovery_score)))
+
+        started_on = _as_date(index[left_idx])
+        completed_on = _as_date(index[-1])
+
+        return PatternMatch(
+            name=self.name,
+            detected=True,
+            pivot=round(pivot, 2),
+            confidence=round(confidence, 3),
+            started_on=started_on,
+            completed_on=completed_on,
+            evidence={
+                "left_peak": round(left_peak, 2),
+                "cup_bottom": round(bottom, 2),
+                "right_peak": round(right_peak, 2),
+                "cup_depth_pct": round(depth, 4),
+                "cup_duration_sessions": int(right_idx - left_idx),
+                "handle_duration_sessions": int(handle_duration),
+                "handle_depth_pct": round(handle_depth, 4),
+                "handle_volume_over_cup": round(handle_vol / cup_advance_vol, 3) if cup_advance_vol else None,
+                "light_handle_volume": light_handle_volume,
+                "current_close": round(float(close[-1]), 2),
+                "dist_to_pivot_pct": round((pivot - float(close[-1])) / pivot, 4) if pivot else None,
+            },
+        )
+
+
+def _as_date(idx_value) -> Optional[date]:
+    try:
+        return idx_value.date() if hasattr(idx_value, "date") else None
+    except Exception:
+        return None

@@ -1,0 +1,83 @@
+# positions.yaml — actual holdings
+# Run:  canslim monitor --positions positions.yaml --config canslim.yaml
+
+positions:
+  # AMD CLOSED 2026-04-28 at $311 (shakeout). Realized +$2,720 / +12.3%.
+  # Trade history:
+  #   2026-04-21 buy 80 @ $277 ($22,160)
+  #   2026-04-24 raise stop $256.23 → $318 (after +20% fast-winner trigger)
+  #   2026-04-25 friday close $347.81 (peak +$5,665 unrealized)
+  #   2026-04-28 stop triggered intraday on dip to $311 (gap-through fill, $7 slippage)
+  #   Cash returned: $24,880
+  # Re-entry watch: AMD earnings May 5. Don't re-enter pre-earnings. Wait for next base.
+
+  # ESE CLOSED 2026-05-08 (exit price TBD — user to fill in for exact P&L).
+  # Original entry: $313.91 × 8 shares = $2,511.28 on 2026-04-21.
+  # Q2 FY26 reported 2026-05-07 AH: sales +33.5%, adj EPS +63.2%, record
+  # backlog $1.5B, FY26 EPS guidance raised — but stock gapped down -7.8% on
+  # the print = classic "sell the news" institutional exit. Intraday low
+  # $290.30 ≈ stop $290.37. Sold on bounce per O'Neil rule (gap-down on heavy
+  # volume after a beat is the sell signal regardless of headline numbers).
+
+  - ticker: SANM
+    entry_price: 197.02
+    entry_date: 2026-04-24
+    shares: 50                 # $9,851 cost basis (corrected/added 2026-05-08; was 20@$192.20)
+    stop_loss: 197.00          # ~breakeven; tighten as profits build
+    pivot: 181.06
+    pattern: cup_with_handle
+    notes: |
+      Cup+H confirmed 4/24 +5.7% on 2.34x volume. Bought ~9% past pivot.
+      Q2 earnings 4/27 BEAT — AH bounced to $216 then now $207.76.
+      Position size scaled up to 50 shares ($9,851 cost basis).
+
+  # XOMA CLOSED 2026-05-08 (exit price TBD — user to fill in for exact P&L).
+  # Original entry: $41.26 × 40 shares = $1,650.40 on 2026-04-29.
+  # Cup-with-handle breakout on 16.42x volume; full CANSLIM match at entry.
+  # Closed after this session flagged active M&A — price action was deal-arb,
+  # not organic CANSLIM signal. See project_canslim_filter_corporate_actions.md.
+
+  - ticker: COCO
+    entry_price: 70.24
+    entry_date: 2026-05-08
+    shares: 420                # $29,500.80 cost basis — largest position
+    stop_loss: 64.97           # 7.5% below entry; could tighten to pivot $69.68 if conservative
+    pivot: 69.68               # cup-with-handle pivot, breakout day 5/8
+    pattern: cup_with_handle
+    notes: |
+      Bought on the breakout day 2026-05-08 at $70.24, +0.8% past pivot $69.68
+      (well inside the +5% no-chase zone — textbook O'Neil entry).
+      Cup-with-handle confidence 0.71-0.84 across the recent scans.
+      Q1 2026 earnings 2026-04-29: revenue $180M (+37%), EPS $0.50 beat 57.9%,
+      FY guidance raised. Heavy accumulation `A` rating going in.
+      Sector: consumer staples (coconut water + private label) — diversifies
+      away from AI-infra concentration of DOCN.
+      Caveat: Exec Chairman sold 50K shares ($3.4M) and CCO sold 2K shares
+      around the gap-up day (likely 10b5-1 plans, but yellow flag).
+      Watch volume: today's mid-day vol ~650K vs ADV50 ~1.5M; need ≥2.1M
+      by close to fully confirm 1.4× breakout. Below that = unconfirmed
+      breakout, slightly higher fakeout risk.
+
+  - ticker: DOCN
+    entry_price: 89.33
+    entry_date: 2026-04-XX     # TODO: user to confirm entry date
+    shares: 120                # $10,719.60 cost basis; ~$19,180 mid-day 5/8 = +$8,460 unrealized
+    stop_loss: 135.00          # ratcheted up post-earnings gap; -7% from current ~$160 area
+    pivot: 108.21              # high_tight_flag pivot from pre-earnings
+    pattern: high_tight_flag
+    notes: |
+      Big winner — entered at $90, peaked ~$161 (5/6) for ~+79% unrealized.
+      Q1 2026 earnings 2026-05-05 AH: massive beat → +35% gap-up the next day.
+      Per O'Neil's 8-week-hold rule: stock advanced 20%+ in <8 weeks from
+      proper buy point, so this is a "leader" — hold for at least 8 weeks
+      before considering a sell.
+
+      Stop strategy:
+      - Initial stop should have been ~$83 (7-8% below $90 entry)
+      - Post-breakout stop trail levels:
+        * $108.21 = original pivot (locks in +20%)
+        * $130.20 = post-earnings gap-up open (locks in +44%)
+        * $135 = current chosen stop (locks in +50%)
+      - 5/8 mid-day: $159.83, well above stop
+      - Watch for: 2-3 distribution days in the next 2 weeks → trim
+      - Watch for: gap fill below $130 → exit most/all

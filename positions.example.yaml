@@ -1,0 +1,40 @@
+# positions.yaml — your currently-held long positions
+# Run:  canslim monitor --positions positions.yaml --config canslim.yaml
+# (Optional: --out monitor_report.md to save to a file)
+
+positions:
+  - ticker: GCT
+    entry_price: 50.09
+    entry_date: 2026-04-21
+    shares: 30
+    stop_loss: 46.25          # 7.5% below entry
+    pivot: 48.88
+    pattern: full_match_no_pattern
+    notes: full CANSLIM match, AD=A
+
+  - ticker: NCSM
+    entry_price: 47.00        # example
+    entry_date: 2026-04-21
+    shares: 30
+    stop_loss: 43.50
+    pivot: 47.00
+    pattern: high_tight_flag
+    notes: rare O'Neil pattern, AD=A
+
+  - ticker: ESE
+    entry_price: 316.00
+    entry_date: 2026-04-22    # triggered the day after the scan
+    shares: 5
+    stop_loss: 291.65
+    pivot: 315.25
+    pattern: three_weeks_tight
+    notes: full match, AD=A
+
+  - ticker: EME
+    entry_price: 820.00
+    entry_date: 2026-04-22
+    shares: 2
+    stop_loss: 756.17
+    pivot: 817.48
+    pattern: three_weeks_tight
+    notes: pass 4/5 gates

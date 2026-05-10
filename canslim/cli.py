@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from pathlib import Path
+from typing import Optional
+
+import typer
+from rich.console import Console
+from rich.table import Table
+
+from canslim.config import Settings
+from canslim.dashboard import render_dashboard
+from canslim.monitor import evaluate_positions, render_monitor_report, snapshot_dict
+from canslim.positions import PositionsFile
+from canslim.report import write_run
+from canslim.scanner import Scanner
+from canslim.universe import load_universe
+
+app = typer.Typer(add_completion=False, help="CANSLIM stock scanner.")
+console = Console()
+log = logging.getLogger("canslim")
+
+
+def _setup_logging(verbose: bool) -> None:
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+def _load(config: Optional[Path]) -> Settings:
+    try:
+        return Settings.load(config)
+    except FileNotFoundError as e:
+        console.print(f"[red]config error:[/red] {e}")
+        raise typer.Exit(code=2)
+
+
+@app.command()
+def scan(
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Path to canslim.yaml"),
+    universe: Optional[str] = typer.Option(None, "--universe", "-u", help="Universe name (sp500, us_all, custom)"),
+    out_dir: Optional[Path] = typer.Option(None, "--out", "-o", help="Output dir override"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Estimate API calls without spending budget"),
+    force_refresh: bool = typer.Option(
+        False, "--force-refresh",
+        help="Bypass positive + negative caches; re-fetch every ticker from upstream.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Run a full scan and write report + parquet + manifest."""
+    _setup_logging(verbose)
+    settings = _load(config)
+    u_name = universe or settings.scanner.default_universe
+    out = str(out_dir or settings.scanner.out_dir)
+
+    tickers = load_universe(u_name, settings)
+    console.print(f"Loaded universe [bold]{u_name}[/bold] ({len(tickers)} tickers)")
+
+    async def _run():
+        scanner = Scanner(settings)
+        try:
+            results, manifest = await scanner.scan(tickers, dry_run=dry_run, force_refresh=force_refresh)
+            return results, manifest, getattr(scanner, "_price_frames", {})
+        finally:
+            await scanner.close()
+
+    results, manifest, price_frames = asyncio.run(_run())
+
+    manifest.universe_name = u_name
+    report_path = write_run(
+        out, results, manifest, tickers,
+        top_n_near_matches=settings.scanner.top_n_near_matches,
+        price_frames=price_frames,
+        embed_charts_base64=settings.scanner.embed_charts_base64,
+        generate_pdf=settings.scanner.generate_pdf,
+    )
+    n_errors = len(manifest.errors)
+    n_skipped_data = sum(1 for r in results if r.status == "skipped_missing_data")
+    console.print(
+        f"[green]done[/green] — matches={manifest.matches} scanned={manifest.scanned} "
+        f"pending={manifest.pending_budget} errors={manifest.errored} "
+        f"fetch_errors={n_errors} skipped_missing={n_skipped_data}"
+    )
+    console.print(f"report: {report_path}")
+    pdf_path = report_path.with_suffix(".pdf")
+    if pdf_path.exists():
+        console.print(f"pdf:    {pdf_path}")
+
+
+@app.command("check-providers")
+def check_providers(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Ping each provider and print health."""
+    _setup_logging(verbose)
+    settings = _load(config)
+    scanner = Scanner(settings)
+
+    async def _run():
+        try:
+            return await scanner.health_check()
+        finally:
+            await scanner.close()
+
+    report = asyncio.run(_run())
+    table = Table(title="Providers")
+    table.add_column("Provider")
+    table.add_column("Status")
+    table.add_column("Detail")
+    any_bad = False
+    for name, info in report.items():
+        status = info.get("status") or "ok"
+        if status == "error":
+            any_bad = True
+            table.add_row(name, "[red]error[/red]", info.get("error", ""))
+        elif status == "disabled":
+            table.add_row(name, "[yellow]disabled[/yellow]", "")
+        else:
+            detail = ", ".join(f"{k}={v}" for k, v in info.items() if k != "provider")
+            table.add_row(name, "[green]ok[/green]", detail)
+    console.print(table)
+    if any_bad:
+        raise typer.Exit(code=1)
+
+
+@app.command("monitor")
+def monitor(
+    positions: Path = typer.Option(..., "--positions", "-p", help="Path to positions.yaml"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Write markdown report to this path (default: print)"),
+    archive: Optional[Path] = typer.Option(
+        None, "--archive", "-a",
+        help="Directory to append timestamped snapshot (md + json) for history/dashboard. Creates dir if missing.",
+    ),
+    force_refresh: bool = typer.Option(False, "--force-refresh"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Evaluate held positions against O'Neil's sell rules and emit a position report."""
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    _setup_logging(verbose)
+    settings = _load(config)
+    pos_file = PositionsFile.load(positions)
+    if not pos_file.positions:
+        console.print("[yellow]No positions in file — nothing to evaluate.[/yellow]")
+        raise typer.Exit(code=0)
+
+    async def _run():
+        return await evaluate_positions(pos_file.positions, settings, force_refresh=force_refresh)
+
+    evaluations, market_alerts = asyncio.run(_run())
+    report = render_monitor_report(evaluations, market_alerts)
+
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(report)
+        console.print(f"Wrote monitor report to {out}")
+    elif not archive:
+        console.print(report)
+
+    if archive:
+        archive.mkdir(parents=True, exist_ok=True)
+        ts = _dt.now(_tz.utc).strftime("%Y-%m-%d_%H%M%S")
+        (archive / f"{ts}.md").write_text(report)
+        snap = snapshot_dict(evaluations, market_alerts)
+        (archive / f"{ts}.json").write_text(_json.dumps(snap, indent=2, default=str))
+        console.print(f"Archived snapshot to {archive}/{ts}.{{md,json}}")
+
+    # Exit 1 if any critical alerts — useful for cron / CI integration
+    has_critical = any(a.severity == "critical" for ev in evaluations for a in ev.alerts) or any(
+        a.severity == "critical" for a in market_alerts
+    )
+    raise typer.Exit(code=1 if has_critical else 0)
+
+
+@app.command("dashboard")
+def dashboard(
+    history: Path = typer.Option(..., "--history", "-h", help="Directory with *.json monitor snapshots"),
+    out: Path = typer.Option(Path("out/monitor/dashboard.html"), "--out", "-o"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Render a self-contained HTML dashboard from archived monitor snapshots."""
+    _setup_logging(verbose)
+    if not history.exists():
+        console.print(f"[red]History dir not found:[/red] {history}")
+        raise typer.Exit(code=2)
+    path = render_dashboard(history, out)
+    console.print(f"[green]Dashboard written to[/green] {path}")
+    console.print(f"Open in browser: file://{path.resolve()}")
+
+
+@app.command("report-pdf")
+def report_pdf(
+    path: Optional[Path] = typer.Argument(
+        None,
+        help="Path to a report.md (or its run dir). Defaults to the most recent run in ./out/runs/.",
+    ),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output PDF path (default: alongside the .md)"),
+) -> None:
+    """Render a scan report.md to PDF (Chrome / Chromium / Brave / Edge required).
+
+    Convenience: pass either the report.md directly, a run directory, or
+    nothing — in which case the most recent run under `out/runs/` is used.
+    """
+    from canslim.pdf import render_pdf as _render
+
+    md_path: Optional[Path] = None
+    if path is None:
+        runs_dir = Path("out/runs")
+        if not runs_dir.exists():
+            console.print(f"[red]No runs dir found:[/red] {runs_dir}")
+            raise typer.Exit(code=2)
+        candidates = sorted(
+            (p for p in runs_dir.iterdir() if (p / "report.md").exists()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            console.print(f"[red]No report.md found under[/red] {runs_dir}")
+            raise typer.Exit(code=2)
+        md_path = candidates[0] / "report.md"
+        console.print(f"[dim]Using most recent run: {md_path.parent.name}[/dim]")
+    elif path.is_dir():
+        md_path = path / "report.md"
+        if not md_path.exists():
+            console.print(f"[red]No report.md in[/red] {path}")
+            raise typer.Exit(code=2)
+    else:
+        md_path = path
+
+    pdf_path = _render(md_path, out)
+    if pdf_path is None:
+        console.print(
+            "[yellow]PDF generation skipped or failed (see warning above). "
+            "HTML intermediate is still in place; install Chrome / Chromium to enable PDF.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    console.print(f"[green]PDF written:[/green] {pdf_path}")
+
+
+@app.command("list-universe")
+def list_universe(
+    name: str = typer.Argument(..., help="Universe name (sp500, us_all, custom)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    limit: int = typer.Option(0, "--limit", "-n", help="Print at most N tickers (0 = all)"),
+) -> None:
+    """Print tickers in a universe."""
+    settings = _load(config)
+    tickers = load_universe(name, settings)
+    if limit > 0:
+        tickers = tickers[:limit]
+    for t in tickers:
+        typer.echo(t)
+    console.print(f"[dim]{len(tickers)} tickers[/dim]")
+
+
+if __name__ == "__main__":
+    app()

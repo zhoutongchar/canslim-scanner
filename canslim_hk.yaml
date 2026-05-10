@@ -1,0 +1,72 @@
+# canslim_hk.yaml — copy to canslim_hk.yaml and run:
+#   canslim scan --config canslim_hk.yaml --universe hk_hsi
+#
+# Key differences from US config:
+#   * market_index: ^HSI (Hang Seng Index) — SPY would be wrong for HK market regime
+#   * SEC provider disabled — EDGAR doesn't cover HK issuers
+#   * FMP disabled by default — free tier doesn't include HK
+#   * Fundamentals come from yfinance only (scraped Yahoo HK data).
+#     Expect coverage gaps; many HK issuers report semi-annually, not quarterly.
+
+providers:
+  yfinance:
+    enabled: true
+    concurrency: 6
+    request_timeout_s: 30
+    max_retries: 4
+  sec:
+    enabled: false
+  fmp:
+    enabled: false
+
+cache:
+  root: cache
+  price_ttl_hours: 20
+  fundamentals_ttl_hours: 168
+  institutional_ttl_hours: 168
+  failure_ttl_hours: 2
+
+criteria:
+  # C — current quarterly EPS.
+  # HK issuers typically report semi-annually; strict C may fail often. Loosen if desired.
+  c_min_yoy: 0.25
+  c_require_accelerating: true
+
+  a_min_annual_yoy: 0.25
+  a_required_years: 3
+  a_min_roe_pct: 0.17
+  a_allow_cagr_fallback: true
+
+  n_max_dist_to_high_pct: 0.15
+  n_breakout_pivot_pct: 0.05
+  n_breakout_volume_multiple: 1.4
+
+  s_min_adv10_over_adv50: 1.2
+  s_max_float_shares: 10000000000   # HK blue-chips are larger; loosened
+
+  l_min_rs_percentile: 0.70
+
+  i_require_qoq_nondecrease: true
+  i_min_new_positions: 1
+
+  # HK blue-chips trade in HKD — $5 USD ≈ 39 HKD. Adjust for HKD.
+  prefilter_min_price: 2.0             # HKD; many HK issuers trade below 10 HKD
+  prefilter_min_adv50_usd: 5000000     # currency unit is HKD, but threshold still interpretable
+  prefilter_max_dist_to_52w_high: 0.25
+
+weights:
+  c: 1.0
+  a: 1.0
+  n: 0.5
+  s: 1.0
+  l: 1.0
+  i: 1.0
+  m: 0.5
+
+scanner:
+  default_universe: hk_hsi             # hk_hsi | hk_hscei | custom
+  out_dir: out
+  max_workers: 12
+  top_n_near_matches: 20
+  embed_charts_base64: true
+  market_index: "^HSI"                 # Hang Seng Index — regime benchmark for HK
