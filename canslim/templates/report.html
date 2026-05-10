@@ -297,60 +297,88 @@ collapsibles. Styling system: monospace numerics, system-ui prose.
   /* === Mobile responsive ============================================ */
   @media (max-width: 768px) {
     body { font-size: 13px; }
+
+    /* Sticky header — keep compact (~80px max with collapsed market-context) */
     header.app { padding: 8px 10px; }
-    .app-title { gap: 8px; row-gap: 4px; }
+    .app-title { gap: 6px 10px; row-gap: 2px; }
     .app-title h1 { font-size: 13px; }
-    .app-title .meta { font-size: 11px; }
+    .app-title .meta { font-size: 10px; }
+    .regime-badge { font-size: 9px; padding: 0 5px; }
+    /* Summary row: single horizontally-scrollable line on mobile */
     .summary-row {
-      grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px;
+      display: flex; gap: 12px; margin-top: 6px;
+      overflow-x: auto; padding-bottom: 4px;
     }
-    .stat { font-size: 10px; }
-    .stat .v { font-size: 14px; }
+    .summary-row .stat { flex-shrink: 0; min-width: 90px; font-size: 10px; }
+    .summary-row .stat .v { font-size: 13px; }
 
-    nav.tabs { top: 90px; padding: 0 6px; }
-    nav.tabs button { padding: 8px 10px; font-size: 11px; flex-shrink: 0; }
+    .market-context > details > summary { font-size: 11px; }
 
-    /* Stack: hide TOC sidebar (search input above is redundant on mobile;
-       we'll surface a search inside the main pane via JS later if needed) */
+    /* Tab nav: compact + horizontal scroll */
+    nav.tabs { top: auto; padding: 0 4px; }
+    nav.tabs button { padding: 7px 10px; font-size: 11px; flex-shrink: 0; }
+    nav.tabs button .count { font-size: 9px; padding: 0 4px; }
+
+    /* Single-column main; hide TOC sidebar */
     .layout { grid-template-columns: 1fr; }
     aside.toc { display: none; }
-    main { padding: 10px 12px; }
+    main { padding: 10px 10px 24px; }
 
-    section.bucket h2 { font-size: 14px; }
+    section.bucket { margin-bottom: 20px; }
+    section.bucket h2 { font-size: 14px; padding-bottom: 4px; margin: 0 0 6px; }
     section.bucket .desc { font-size: 11px; }
 
-    /* Stack candidate summary onto two rows for narrow screens */
+    /* Per-candidate summary: flex-wrap, ticker/status visible inline,
+       extended meta on its own line(s) below */
     details.candidate > summary {
-      grid-template-columns: auto auto auto auto;
-      grid-template-areas: "ticker score gates status" "meta meta meta meta" "meta2 meta2 meta2 meta2";
-      gap: 6px 10px; padding: 8px 10px; font-size: 11px;
+      display: flex; flex-wrap: wrap; align-items: baseline;
+      gap: 4px 10px; padding: 8px 10px; font-size: 12px;
     }
-    details.candidate .ticker { grid-area: ticker; font-size: 13px; }
-    details.candidate .score { grid-area: score; }
-    details.candidate .gates { grid-area: gates; font-size: 12px; }
-    details.candidate .status { grid-area: status; }
-    details.candidate .summary-meta:nth-of-type(1) { grid-area: meta; }
-    details.candidate .summary-meta:nth-of-type(2) { grid-area: meta2; font-size: 10px; }
-    details.candidate .body { padding: 10px 10px 12px; }
-    .body-grid { grid-template-columns: 1fr; gap: 12px; }
+    details.candidate > summary::before { font-size: 8px; }
+    details.candidate .ticker { font-size: 14px; }
+    details.candidate .score, details.candidate .gates { font-size: 12px; }
+    details.candidate .status { font-size: 9px; padding: 1px 5px; }
+    /* Summary meta lines wrap to their own row */
+    details.candidate .summary-meta {
+      flex-basis: 100%; font-size: 10px; line-height: 1.35;
+      white-space: normal; overflow: visible;
+    }
 
-    /* Tables get a horizontal scroll container so cells don't crush */
+    details.candidate .body { padding: 10px 8px 14px; }
+    .body-grid { grid-template-columns: 1fr; gap: 10px; }
+
+    /* Tables overflow into horizontal scroll containers */
     table.compact { font-size: 11px; }
     table.compact th, table.compact td { padding: 3px 5px; }
-    /* Wrap any direct-child .compact table that overflows */
     section.bucket > table.compact,
     .market-context table.compact {
       display: block; overflow-x: auto; white-space: nowrap;
     }
 
-    /* Market context: stack everything */
-    .mc-charts { grid-template-columns: 1fr; }
+    /* Market context internal: stack charts + grid */
+    .mc-charts { grid-template-columns: 1fr; gap: 10px; }
+    .mc-chart-label { font-size: 10px; }
     .mc-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .mc-stat { font-size: 10px; }
     .mc-stat .mc-value { font-size: 14px; }
 
-    /* Entry plan: tighter */
+    /* Entry plan: tighter padding/typography */
     .entry-plan { padding: 8px 10px; font-size: 11px; }
+    .entry-plan h4 { font-size: 12px; }
     .entry-plan ul { padding-left: 16px; }
+    .entry-plan ul li { margin: 2px 0; font-size: 11px; }
+
+    /* CANSLIM brief layout tightens */
+    .canslim-brief { font-size: 11px; }
+    .canslim-brief .row { grid-template-columns: 18px 38px 24px 1fr; gap: 4px; }
+    .canslim-brief .reason { font-size: 10px; }
+
+    /* Patterns + price/volume lists tighten */
+    .patterns-list, .price-volume { font-size: 11px; }
+    .price-volume li { margin: 2px 0; }
+
+    /* Section-headers in body smaller */
+    .body h4 { font-size: 11px; margin-top: 10px; }
   }
 
   /* Tablet (769-1024px): partial mobile, keep TOC but slim */
@@ -386,7 +414,7 @@ collapsibles. Styling system: monospace numerics, system-ui prose.
   {% if manifest.market_context %}
     {% set mc = manifest.market_context %}
     <div class="market-context">
-      <details open>
+      <details>
         <summary><strong>Market context</strong>{% if mc.note %} — <span class="meta">{{ mc.note }}</span>{% endif %}</summary>
 
         {% if market_charts.get("__market__") or market_charts.get("__vix__") %}
