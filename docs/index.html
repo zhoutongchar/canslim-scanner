@@ -281,6 +281,72 @@
     font-size: 11px; color: var(--text-muted);
   }
   footer table { width: auto; min-width: 400px; }
+
+  /* === Mobile responsive ============================================ */
+  @media (max-width: 768px) {
+    body { font-size: 13px; }
+    header.app { padding: 8px 10px; }
+    .app-title { gap: 8px; row-gap: 4px; }
+    .app-title h1 { font-size: 13px; }
+    .app-title .meta { font-size: 11px; }
+    .summary-row {
+      grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px;
+    }
+    .stat { font-size: 10px; }
+    .stat .v { font-size: 14px; }
+
+    nav.tabs { top: 90px; padding: 0 6px; }
+    nav.tabs button { padding: 8px 10px; font-size: 11px; flex-shrink: 0; }
+
+    /* Stack: hide TOC sidebar (search input above is redundant on mobile;
+       we'll surface a search inside the main pane via JS later if needed) */
+    .layout { grid-template-columns: 1fr; }
+    aside.toc { display: none; }
+    main { padding: 10px 12px; }
+
+    section.bucket h2 { font-size: 14px; }
+    section.bucket .desc { font-size: 11px; }
+
+    /* Stack candidate summary onto two rows for narrow screens */
+    details.candidate > summary {
+      grid-template-columns: auto auto auto auto;
+      grid-template-areas: "ticker score gates status" "meta meta meta meta" "meta2 meta2 meta2 meta2";
+      gap: 6px 10px; padding: 8px 10px; font-size: 11px;
+    }
+    details.candidate .ticker { grid-area: ticker; font-size: 13px; }
+    details.candidate .score { grid-area: score; }
+    details.candidate .gates { grid-area: gates; font-size: 12px; }
+    details.candidate .status { grid-area: status; }
+    details.candidate .summary-meta:nth-of-type(1) { grid-area: meta; }
+    details.candidate .summary-meta:nth-of-type(2) { grid-area: meta2; font-size: 10px; }
+    details.candidate .body { padding: 10px 10px 12px; }
+    .body-grid { grid-template-columns: 1fr; gap: 12px; }
+
+    /* Tables get a horizontal scroll container so cells don't crush */
+    table.compact { font-size: 11px; }
+    table.compact th, table.compact td { padding: 3px 5px; }
+    /* Wrap any direct-child .compact table that overflows */
+    section.bucket > table.compact,
+    .market-context table.compact {
+      display: block; overflow-x: auto; white-space: nowrap;
+    }
+
+    /* Market context: stack everything */
+    .mc-charts { grid-template-columns: 1fr; }
+    .mc-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .mc-stat .mc-value { font-size: 14px; }
+
+    /* Entry plan: tighter */
+    .entry-plan { padding: 8px 10px; font-size: 11px; }
+    .entry-plan ul { padding-left: 16px; }
+  }
+
+  /* Tablet (769-1024px): partial mobile, keep TOC but slim */
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .layout { grid-template-columns: 180px 1fr; }
+    aside.toc { font-size: 11px; }
+    aside.toc li a { padding: 2px 8px; gap: 6px; }
+  }
 </style>
 </head>
 <body>
