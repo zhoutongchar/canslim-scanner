@@ -286,8 +286,10 @@
   @media (max-width: 768px) {
     body { font-size: 13px; }
 
-    /* Sticky header — keep compact (~80px max with collapsed market-context) */
-    header.app { padding: 8px 10px; }
+    /* On mobile the header is NOT sticky — when market-context expands it
+       can grow tall, and a sticky element bigger than the viewport blocks
+       scrolling. Let it scroll with the page; only the tab nav stays pinned. */
+    header.app { position: static; padding: 8px 10px; }
     .app-title { gap: 6px 10px; row-gap: 2px; }
     .app-title h1 { font-size: 13px; }
     .app-title .meta { font-size: 10px; }
@@ -302,8 +304,8 @@
 
     .market-context > details > summary { font-size: 11px; }
 
-    /* Tab nav: compact + horizontal scroll */
-    nav.tabs { top: auto; padding: 0 4px; }
+    /* Tab nav: stays pinned at top (only sticky element on mobile) */
+    nav.tabs { position: sticky; top: 0; padding: 0 4px; }
     nav.tabs button { padding: 7px 10px; font-size: 11px; flex-shrink: 0; }
     nav.tabs button .count { font-size: 9px; padding: 0 4px; }
 
