@@ -47,6 +47,8 @@
   }
   .app-title { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
   .app-title h1 { margin: 0; font-size: 14px; font-weight: 600; }
+  .app-title h1 a.home-link { color: var(--text); text-decoration: none; }
+  .app-title h1 a.home-link:hover { color: var(--accent); }
   .app-title .meta { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
   .regime-badge {
     display: inline-block; padding: 1px 8px; border-radius: 3px;
@@ -304,8 +306,8 @@
 
     .market-context > details > summary { font-size: 11px; }
 
-    /* Tab nav: stays pinned at top (only sticky element on mobile) */
-    nav.tabs { position: sticky; top: 0; padding: 0 4px; }
+    /* Tab nav: NOT sticky on mobile — let it scroll with the page */
+    nav.tabs { position: static; padding: 0 4px; }
     nav.tabs button { padding: 7px 10px; font-size: 11px; flex-shrink: 0; }
     nav.tabs button .count { font-size: 9px; padding: 0 4px; }
 
@@ -383,7 +385,7 @@
 
 <header class="app">
   <div class="app-title">
-    <h1>CANSLIM Scan</h1>
+    <h1><a href="../../" class="home-link" title="All scan reports">CANSLIM Scan</a></h1>
     <span class="meta">2026-05-10_160738</span>
     <span class="meta">universe: us_all (5100 tickers)</span>
       <span class="regime-badge regime-uptrend">UPTREND</span>
