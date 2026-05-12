@@ -230,3 +230,4 @@ out/
 # Local env files (in case user adds one with real API keys)
 .env
 .envrc
+positions.yaml
