@@ -93,6 +93,12 @@ class DoubleBottom(ChartPattern):
         # Pivot = middle peak high + small buffer
         pivot = middle_peak + 0.10
         last_close = float(close[-1])
+        # Reject "stale" patterns where the breakout already happened and price
+        # has run far past the pivot — the base is no longer actionable as an
+        # entry. O'Neil's buy zone is pivot to pivot+5%; >20% above pivot is
+        # firmly in "extended, chasing" territory.
+        if pivot > 0 and last_close > pivot * 1.20:
+            return None
         dist_to_pivot = (pivot - last_close) / pivot if pivot > 0 else None
 
         # Confidence: balance mismatch quality + peak rise centered on ~10%

@@ -62,6 +62,9 @@ class ThreeWeeksTight(ChartPattern):
 
         pivot = hi + 0.10
         last_daily_close = float(df["close"].iloc[-1])
+        # Reject "stale" 3-weeks-tight: price >20% past pivot — already broken out.
+        if pivot > 0 and last_daily_close > pivot * 1.20:
+            return None
         dist_to_pivot = (pivot - last_daily_close) / pivot if pivot > 0 else None
         confidence = float(0.6 * (1.0 - rng / p.max_range_pct) + 0.4 * min(1.0, prior_advance / 0.20))
 

@@ -45,6 +45,10 @@ class FlatBase(ChartPattern):
             if rng <= p.max_range_pct:
                 pivot = hi + 0.10
                 last_close = float(window["close"].iloc[-1])
+                # Reject "stale" base: price already extended >20% past pivot
+                # (the breakout happened and we're chasing).
+                if pivot > 0 and last_close > pivot * 1.20:
+                    continue
                 dist_to_pivot = (pivot - last_close) / pivot if pivot > 0 else None
                 confidence = float(max(0.0, 1.0 - rng / p.max_range_pct)) * 0.9  # cap to leave room above
                 return PatternMatch(

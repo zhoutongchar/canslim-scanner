@@ -87,6 +87,10 @@ class Saucer(ChartPattern):
         # If the current close sits close to the right-side peak, it's a valid saucer setup
         last_close = float(closes[-1])
         pivot = right_peak + 0.10
+        # Reject "stale" patterns where price has already run >20% past the pivot
+        # (extended; the entry is gone — see double_bottom for full rationale).
+        if pivot > 0 and last_close > pivot * 1.20:
+            return None
         dist_to_pivot = (pivot - last_close) / pivot if pivot > 0 else None
 
         depth_score = 1.0 - min(1.0, abs(depth - 0.15) / 0.15)

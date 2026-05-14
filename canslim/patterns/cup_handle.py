@@ -140,6 +140,13 @@ class CupWithHandle(ChartPattern):
         # Pivot = handle's highest close + small buffer
         handle_high = float(handle_region["high"].max() if "high" in handle_region else handle_region["close"].max())
         pivot = handle_high + 0.10
+        # Reject "stale" cup-with-handle: price already >20% past pivot — the
+        # base broke out and ran. (Note: max_right_side_overshoot above bounds
+        # the right peak vs left peak DURING base formation; this guard bounds
+        # the post-handle current price vs the pivot.)
+        last_close_now = float(close[-1])
+        if pivot > 0 and last_close_now > pivot * 1.20:
+            return None
 
         # Confidence blends: depth in classic range, handle depth, volume quality, right-side recovery
         ideal_depth = 0.20

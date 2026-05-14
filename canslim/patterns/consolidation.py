@@ -64,6 +64,9 @@ class Consolidation(ChartPattern):
 
             pivot = box_hi + 0.10
             last_close = float(window["close"].iloc[-1])
+            # Reject "stale" consolidation: price >20% past pivot — entry is gone.
+            if pivot > 0 and last_close > pivot * 1.20:
+                continue
             dist_to_pivot = (pivot - last_close) / pivot if pivot > 0 else None
             tight_score = 1.0 - min(1.0, (upper_var + lower_var) / (2 * p.max_rail_variation))
             confidence = float(0.7 * tight_score + 0.3 * min(1.0, size / p.max_sessions))

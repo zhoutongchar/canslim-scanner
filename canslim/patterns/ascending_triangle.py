@@ -73,6 +73,9 @@ class AscendingTriangle(ChartPattern):
 
             pivot = top_max + 0.10
             last_close = float(closes[-1])
+            # Reject "stale" triangle: price >20% past pivot — already broken out and run.
+            if pivot > 0 and last_close > pivot * 1.20:
+                continue
             dist_to_pivot = (pivot - last_close) / pivot if pivot > 0 else None
             # Confidence: tight top + strong rising support + enough swings
             tight_score = 1.0 - min(1.0, variation / p.max_top_variation)

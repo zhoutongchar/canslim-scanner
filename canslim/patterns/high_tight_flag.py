@@ -74,6 +74,9 @@ class HighTightFlag(ChartPattern):
 
                 pivot = flag_high + 0.10
                 last_close = float(flag["close"].iloc[-1])
+                # Reject "stale" flag: price >20% past pivot — flag already resolved upward.
+                if pivot > 0 and last_close > pivot * 1.20:
+                    continue
                 dist_to_pivot = (pivot - last_close) / pivot if pivot > 0 else None
                 confidence = float(
                     min(1.0, 0.5 * min(1.0, advance / 1.0) + 0.3 * (1.0 - pullback / p.flag_max_pullback) + 0.2)
