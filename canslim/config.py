@@ -17,6 +17,7 @@ class ProviderConfig(BaseModel):
     daily_budget: Optional[int] = None  # requests/day (FMP free tier = 250)
     request_timeout_s: float = 20.0
     concurrency: int = 8
+    requests_per_second: Optional[float] = None
     max_retries: int = 4
 
     def resolved_api_key(self) -> Optional[str]:

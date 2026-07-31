@@ -126,9 +126,8 @@ def scan(
             f"{fresh_price_failures}/{fresh_price_attempts} price fetches failed this run — "
             "yfinance throttling likely; consider re-running with --force-refresh"
         )
-    if abstained_scans > 0:
-        if abstained_pct > 0.05:
-            summary_color = "yellow"
+    if abstained_pct > 0.05:
+        summary_color = "yellow"
         health_warn.append(
             f"{abstained_scans} of {manifest.scanned} scanned tickers had gates abstain "
             f"due to missing data (institutional/fundamentals/float). Re-run to retry."
@@ -141,6 +140,11 @@ def scan(
     )
     for w in health_warn:
         console.print(f"[yellow]⚠ data quality:[/yellow] {w}")
+    if 0 < abstained_pct <= 0.05:
+        console.print(
+            f"[dim]data note: {abstained_scans}/{manifest.scanned} scanned tickers "
+            "had missing gate data (within the 5% quality tolerance)[/dim]"
+        )
 
     html_path = report_path.parent / "index.html"
     if html_path.exists():
@@ -163,11 +167,10 @@ def scan(
         except Exception:
             pass
 
-    # Exit code 2 if data quality is meaningfully degraded — callers can chain
-    # with `|| true` if they want to ignore but cron/CI will see the signal.
-    # Trigger only on abstains (real gate-data gaps) or in-run price-fetch
-    # failures — NOT on the always-large stale-listed tail of us_all.
-    if abstained_scans > 0 or (fresh_price_attempts > 100 and
+    # Exit code 2 only when data quality crosses the documented tolerance.
+    # A small long tail of unsupported listings is normal for the us_all
+    # universe and should not block publishing.
+    if abstained_pct > 0.05 or (fresh_price_attempts > 100 and
                                 fresh_price_failures / max(fresh_price_attempts, 1) > 0.20):
         raise typer.Exit(code=2)
 

@@ -4,12 +4,14 @@ providers:
   yfinance:
     enabled: true
     concurrency: 8
+    requests_per_second: 2
     request_timeout_s: 20
     max_retries: 4
   sec:
     enabled: true
     api_key: "canslim-user you@example.com"
     concurrency: 5
+    requests_per_second: 4
     request_timeout_s: 20
     max_retries: 4
   fmp:

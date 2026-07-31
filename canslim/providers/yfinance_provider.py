@@ -11,6 +11,7 @@ from canslim.config import CacheConfig, ProviderConfig
 from canslim.models import EarningsBundle, InstitutionalSnapshot
 from canslim.providers.base import DataProvider, ProviderError
 from canslim.providers.cache import CacheStore
+from canslim.providers.rate_limit import AsyncRateLimiter
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,10 @@ class YFinanceProvider(DataProvider):
         self.cache_cfg = cache_cfg
         self.cache = cache
         self._sem = asyncio.Semaphore(max(1, cfg.concurrency))
+        self._quote_rate_limiter = AsyncRateLimiter(cfg.requests_per_second or 2.0)
+        # Float and institutional enrichment need the same quote-summary payload.
+        # Keep one task per ticker so concurrent callers never duplicate it.
+        self._quote_tasks: dict[str, asyncio.Task[Optional[dict]]] = {}
         # Import lazily so `canslim check-providers` can fail gracefully if yfinance isn't installed
         self._yf = __import__("yfinance")
 
@@ -152,9 +157,9 @@ class YFinanceProvider(DataProvider):
         ):
             return cached_float
 
-        # Cache is missing the value (or stale) — try a fresh fetch.
-        async with self._sem:
-            info = await asyncio.to_thread(self._get_info_sync, ticker)
+        # Cache is missing the value (or stale) — share one paced quote-summary
+        # request with get_institutional().
+        info = await self._get_quote_info(ticker)
         if info is not None and info.get("float_shares") is not None:
             self.cache.write_json("info", self.name, ticker, info)
             return info["float_shares"]
@@ -168,34 +173,45 @@ class YFinanceProvider(DataProvider):
             return cached_float
         return None
 
-    def _get_info_sync(self, ticker: str) -> Optional[dict]:
-        """Resilient info lookup.
+    async def _get_quote_info(self, ticker: str) -> Optional[dict]:
+        task = self._quote_tasks.get(ticker)
+        if task is None:
+            task = asyncio.create_task(self._fetch_quote_info_with_retry(ticker))
+            self._quote_tasks[ticker] = task
+        return await asyncio.shield(task)
 
-        Strategy: `fast_info` first — uses the spark-chart endpoint and doesn't need a crumb,
-        so it survives the 401 "Invalid Crumb" batch failures. Fall back to `get_info()` with
-        one retry (clearing the session) only if fast_info missed the field we need.
-        """
-        t = self._yf.Ticker(ticker)
-        out: dict = {}
-
-        fi = _try_fast_info(t)
-        if fi:
-            out["float_shares"] = _as_float(fi.get("floatShares") or fi.get("shares"))
-            out["shares_outstanding"] = _as_float(fi.get("shares"))
-            out["market_cap"] = _as_float(fi.get("marketCap") or fi.get("market_cap"))
-
-        # Only escalate to get_info (crumbed, flaky) if we still lack critical fields.
-        needs_fallback = out.get("float_shares") is None or out.get("shares_outstanding") is None
-        if needs_fallback:
-            info = _try_get_info_with_retry(t, attempts=2)
-            if info:
-                out.setdefault("float_shares", _as_float(info.get("floatShares")))
-                out.setdefault("shares_outstanding", _as_float(info.get("sharesOutstanding")))
-                out.setdefault("market_cap", _as_float(info.get("marketCap")))
-                out["short_name"] = info.get("shortName")
-                out["held_percent_institutions"] = _as_float(info.get("heldPercentInstitutions"))
-
-        return out if out else None
+    async def _fetch_quote_info_with_retry(self, ticker: str) -> Optional[dict]:
+        attempts = max(1, self.cfg.max_retries)
+        for attempt in range(attempts):
+            await self._quote_rate_limiter.acquire()
+            try:
+                async with self._sem:
+                    raw = await asyncio.to_thread(
+                        lambda: self._yf.Ticker(ticker).get_info() or {}
+                    )
+                if raw:
+                    return {
+                        "float_shares": _as_float(raw.get("floatShares")),
+                        "shares_outstanding": _as_float(raw.get("sharesOutstanding")),
+                        "market_cap": _as_float(raw.get("marketCap")),
+                        "short_name": raw.get("shortName"),
+                        "held_percent_institutions": _as_float(
+                            raw.get("heldPercentInstitutions")
+                        ),
+                    }
+                return None
+            except Exception as exc:
+                if not _is_rate_limit_error(exc):
+                    log.debug("quote info failed for %s: %s", ticker, exc)
+                    return None
+                backoff = min(15.0 * (2 ** attempt), 120.0)
+                await self._quote_rate_limiter.defer(backoff)
+                log.warning(
+                    "Yahoo rate limited quote info for %s (attempt %d/%d); "
+                    "pausing quote requests %.0fs",
+                    ticker, attempt + 1, attempts, backoff,
+                )
+        return None
 
     # ---- fallback fundamentals (used when FMP is unavailable/out of budget)
 
@@ -235,8 +251,20 @@ class YFinanceProvider(DataProvider):
             "institutional", self.name, ticker, self.cache_cfg.institutional_ttl_hours
         ):
             return _snap_from_cache(cached, age_hours=0.0)
-        async with self._sem:
-            snap = await asyncio.to_thread(self._get_institutional_sync, ticker)
+        info = await self._get_quote_info(ticker)
+        pct = (
+            _as_float(info.get("held_percent_institutions"))
+            if info is not None else None
+        )
+        snap = (
+            InstitutionalSnapshot(
+                ticker=ticker,
+                reported_at=date.today(),
+                inst_own_pct=pct,
+                qoq_delta_pct=None,
+            )
+            if pct is not None else None
+        )
         if snap is not None:
             self.cache.write_json(
                 "institutional",
@@ -260,21 +288,6 @@ class YFinanceProvider(DataProvider):
             log.debug("Institutional fetch failed for %s — using stale cache (%.1fh old)", ticker, age_h)
             return _snap_from_cache(cached, age_hours=age_h)
         return None
-
-    def _get_institutional_sync(self, ticker: str) -> Optional[InstitutionalSnapshot]:
-        t = self._yf.Ticker(ticker)
-        info = _try_get_info_with_retry(t, attempts=2)
-        if not info:
-            return None
-        pct = _as_float(info.get("heldPercentInstitutions"))
-        if pct is None:
-            return None
-        return InstitutionalSnapshot(
-            ticker=ticker,
-            reported_at=date.today(),
-            inst_own_pct=pct,
-            qoq_delta_pct=None,
-        )
 
 
 def _normalize_bars(df: pd.DataFrame) -> pd.DataFrame:
@@ -322,56 +335,18 @@ def _extract_eps_row(df) -> tuple[list[float], list[str]]:
     return vals, periods
 
 
-def _try_fast_info(t) -> Optional[dict]:
-    """yfinance.fast_info is a lazy dict-like backed by the spark-chart endpoint (no crumb)."""
-    try:
-        fi = t.fast_info
-        if fi is None:
-            return None
-        # Materialize a dict so we can introspect keys safely
-        out: dict = {}
-        for key in ("shares", "floatShares", "marketCap", "market_cap", "last_price", "year_high"):
-            try:
-                v = fi[key] if hasattr(fi, "__getitem__") else getattr(fi, key, None)
-            except Exception:
-                v = None
-            if v is not None:
-                out[key] = v
-        return out or None
-    except Exception as e:
-        log.debug("fast_info failed: %s", e)
-        return None
-
-
-def _try_get_info_with_retry(t, attempts: int = 2) -> Optional[dict]:
-    """Call .get_info() with a tiny retry. On 401/Invalid Crumb we clear the session
-    so yfinance refreshes its crumb cookie, then try once more.
-    """
-    import time as _time
-    last_exc: Optional[Exception] = None
-    for i in range(attempts):
-        try:
-            info = t.get_info()
-            if info:
-                return info
-        except Exception as e:
-            last_exc = e
-            msg = str(e)
-            # Reset session so yfinance re-crumbs next call; swallow if session attr isn't there.
-            if "401" in msg or "Crumb" in msg or "Unauthorized" in msg:
-                try:
-                    sess = getattr(t, "_session", None) or getattr(t, "session", None)
-                    if sess is not None and hasattr(sess, "cookies"):
-                        sess.cookies.clear()
-                except Exception:
-                    pass
-                _time.sleep(0.4 * (i + 1))
-                continue
-            # Non-auth failure: don't waste attempts
-            break
-    if last_exc is not None:
-        log.debug("get_info failed after %d attempts: %s", attempts, last_exc)
-    return None
+def _is_rate_limit_error(exc: Exception) -> bool:
+    name = type(exc).__name__.lower()
+    message = str(exc).lower()
+    return (
+        "ratelimit" in name
+        or "rate limit" in message
+        or "too many requests" in message
+        or "429" in message
+        or "invalid crumb" in message
+        or "unauthorized" in message
+        or "unable to access this feature" in message
+    )
 
 
 def _as_float(v) -> Optional[float]:

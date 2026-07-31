@@ -23,6 +23,7 @@ from canslim.models import EarningsBundle, InstitutionalSnapshot, NormalizationA
 from canslim.normalization import apply_rules, default_rules
 from canslim.providers.base import DataProvider, ProviderError, RateLimited
 from canslim.providers.cache import CacheStore
+from canslim.providers.rate_limit import AsyncRateLimiter
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class SECProvider(DataProvider):
             headers={"User-Agent": ua, "Accept": "application/json"},
         )
         self._sem = asyncio.Semaphore(max(1, min(cfg.concurrency, 5)))  # cap at 5 rps
+        self._rate_limiter = AsyncRateLimiter(cfg.requests_per_second or 4.0)
         self._ticker_to_cik: Optional[dict[str, str]] = None
         self._ticker_map_lock = asyncio.Lock()
 
@@ -90,6 +92,7 @@ class SECProvider(DataProvider):
         ):
             with attempt:
                 async with self._sem:
+                    await self._rate_limiter.acquire()
                     resp = await self._client.get(url)
                 if resp.status_code == 429:
                     raise RateLimited(f"SEC rate limited: {resp.text[:200]}")
